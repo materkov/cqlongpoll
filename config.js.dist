@@ -4,3 +4,7 @@ config.API_ENDPOINT = 'http://localhost/api/v1';
 config.PORT_USER = 9027;
 config.POST_API = 9028;
 config.PORT_STAT = 9029;
+
+
+// At the end
+module.exports = config;
