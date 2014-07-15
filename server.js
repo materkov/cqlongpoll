@@ -142,7 +142,7 @@ function listenerAPI(req, res) {
     });
   }
   else {
-    writeBadRequest(res);
+    writeError(res, 4000);
   }
 }
 
