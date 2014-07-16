@@ -6,9 +6,11 @@ var http = require('http'),
 
 var LONG_POOL_TIMEOUT = 25 * 1000; // 25 seconds
 var EVENTS_EXPIRE_TIME = 20 * 60 * 1000; // 20 minutes
+var AUTH_TOKEN_CACHE_TIME = 10 * 60 * 1000; // 10 minutes
 
 var events = [];
 var pending = [];
+var tokenCache = {};
 
 
 function currentTimestamp() {
@@ -146,6 +148,34 @@ function listenerAPI(req, res) {
   }
 }
 
+function getTokenInfo(authToken, callback) {
+  var cached = tokenCache[authToken];
+
+  // Check expired
+  if (cached && cached._timestamp < (currentTimestamp() - AUTH_TOKEN_CACHE_TIME))
+    cached = null;
+
+  if (!cached) {
+    request.get(config.API_ENDPOINT + '/auth/checktoken?auth_token=' + authToken, function(error, response, body) {
+      try {
+        if (error) throw 'Error';
+
+        body = JSON.parse(body);
+        tokenCache[authToken] = body;
+        tokenCache[authToken]._timestamp = currentTimestamp();
+      }
+      catch (e) {
+        body = {meta: {status: 502}, data: {}};
+      }
+
+      callback(body);
+    });
+  }
+  else {
+    callback(cached);
+  }
+}
+
 function checkAccess(authToken, requestedEvents) {
   if (authToken.type == 'user') {
     // Этот тукен может подписаться на: message.APPID.USERID
@@ -187,14 +217,7 @@ function listenerClient(req, res) {
   if (!u.query.timestamp)
     u.query.timestamp = currentTimestamp();
 
-  request.get(config.API_ENDPOINT + '/auth/checktoken?auth_token=' + u.query.auth_token, function(error, response, body) {
-    try {
-      body = JSON.parse(body);
-    }
-    catch (e) {
-      body = {meta: {status: 502}, data: {}};
-    }
-
+  getTokenInfo(u.query.auth_token, function(body) {
     if (body.meta.status == 200 && body.data.active) {
       clearExpiredEvents();
 
