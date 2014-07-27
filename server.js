@@ -319,6 +319,7 @@ function listenerClient(req, res) {
 
           for (var i = 0; i < pending.length; i++) {
             if (pending[i].res == res) {
+              clearTimeout(pending[i].timeout);
               pending.splice(i, 1);
               break;
             }
