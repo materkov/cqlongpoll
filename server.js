@@ -119,17 +119,25 @@ function tokenOfflineTimeoutCancel(authToken) {
     // Нужно отменить таймер.
     clearTimeout(tokenOfflineTimeouts[authToken]);
     delete tokenOfflineTimeouts[authToken];
+
+    return true;
   }
+
+  return false;
 }
 
 function setOnline(authToken) {
   if (authToken.indexOf('user') != 0) return;  // Нужно это только для user тукенов
 
-  tokenOfflineTimeoutCancel(authToken);
-
-  var operations = [{op: 'update_or_create', key: '$online', value: true}];
-  var params = {app: '$self_app', operations: JSON.stringify(operations)};
-  request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
+  var deleted = tokenOfflineTimeoutCancel(authToken);
+  if (!deleted) {
+    // Устанавливать онлайн нужно только в том случае, если НЕ был удален
+    // Потому что, если был удален, значит, уже подключался раньше и онлайн 
+    // уже был установлен для него, устанавливать еще раз не нужно
+    var operations = [{op: 'update_or_create', key: '$online', value: true}];
+    var params = {app: '$self_app', operations: JSON.stringify(operations)};
+    request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
+  }
 }
 
 function setOffline(authToken) {
