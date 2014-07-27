@@ -4,13 +4,15 @@ var http = require('http'),
     request = require('request'),
     config = require('./config.js');
 
-var LONG_POOL_TIMEOUT = 25 * 1000; // 25 seconds
-var EVENTS_EXPIRE_TIME = 20 * 60 * 1000; // 20 minutes
-var AUTH_TOKEN_CACHE_TIME = 10 * 60 * 1000; // 10 minutes
+var LONG_POOL_TIMEOUT = 25 * 1000;  // 25 seconds
+var EVENTS_EXPIRE_TIME = 20 * 60 * 1000;  // 20 minutes
+var AUTH_TOKEN_CACHE_TIME = 20 * 60 * 1000;  // 20 minutes
+var AUTH_TOKEN_OFFLINE_TIMEOUT = 10 * 1000;  // 10 seconds
 
 var events = [];
 var pending = [];
 var tokenCache = {};
+var tokenOfflineTimeouts = {};
 
 
 function currentTimestamp() {
@@ -70,6 +72,7 @@ function checkPendingForEvent(event) {
     for (j = 0; j < pending[i].requestedEvents.length; j++) {
       if (event.event.startsWith(pending[i].requestedEvents[j])) {
         sendEventsToClient(pending[i].res, [event]);
+        setOffline(pending[i].authToken);
         
         // Удаляем клиента из ожидающих
         clearTimeout(pending[i].timeout);
@@ -108,6 +111,37 @@ function writeError(res, error) {
     res.write('Something wrong');
   
   res.end();
+}
+
+function tokenOfflineTimeoutCancel(authToken) {
+  if (tokenOfflineTimeouts.hasOwnProperty(authToken)) {
+    // Если для этого тукена был поставлен таймер на оффлайн, то получается, что он заново поключился.
+    // Нужно отменить таймер.
+    clearTimeout(tokenOfflineTimeouts[authToken]);
+    delete tokenOfflineTimeouts[authToken];
+  }
+}
+
+function setOnline(authToken) {
+  if (authToken.indexOf('user') != 0) return;  // Нужно это только для user тукенов
+
+  tokenOfflineTimeoutCancel(authToken);
+
+  var operations = [{op: 'update_or_create', key: '$online', value: true}];
+  var params = {app: '$self_app', operations: JSON.stringify(operations)};
+  request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
+}
+
+function setOffline(authToken) {
+  if (authToken.indexOf('user') != 0) return;  // Нужно это только для user тукенов
+
+  tokenOfflineTimeoutCancel(authToken);
+
+  tokenOfflineTimeouts[authToken] = setTimeout(function() {
+    var operations = [{op: 'update_or_create', key: '$online', value: false}];
+    var params = {app: '$self_app', operations: JSON.stringify(operations)};
+    request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
+  }, AUTH_TOKEN_OFFLINE_TIMEOUT);
 }
 
 /*
@@ -158,7 +192,7 @@ function getTokenInfo(authToken, callback) {
   if (!cached) {
     request.get(config.API_ENDPOINT + '/auth/checktoken?auth_token=' + authToken, function(error, response, body) {
       try {
-        if (error) throw 'Error';
+        if (!response || response.statusCode != 200) throw 'Error';
 
         body = JSON.parse(body);
         tokenCache[authToken] = body;
@@ -176,25 +210,33 @@ function getTokenInfo(authToken, callback) {
   }
 }
 
-function checkAccess(authToken, requestedEvents) {
+// Вернуть события, которые допустимы для данного тукена
+function getAllowedEventsForToken(authToken) {
+  var allowedEvents = [];
+
   if (authToken.type == 'user') {
-    // Этот тукен может подписаться на: message.APPID.USERID
-    var allowedEvents = [
-      'instantmessage.' + authToken.app + '.' + authToken.user,
-    ];
+    allowedEvents.push('instantmessage.' + authToken.app + '.' + authToken.user);
+    allowedEvents.push('user_status_change.' + authToken.app + '.' + authToken.user);
+    allowedEvents.push('instantmessage_read.' + authToken.app + '.' + authToken.user);
+    allowedEvents.push('campaign_hit.' + authToken.app + '.' + authToken.user);
   }
   else if (authToken.type == 'panel') {
-    // Этот тукен может подписаться на: message.APPID
-    var allowedEvents = [];
-
-    for (var i = 0; i < authToken.apps.length; i++) 
+    for (var i = 0; i < authToken.apps.length; i++) {
       allowedEvents.push('instantmessage.' + authToken.apps[i]);
-  }
+      allowedEvents.push('user_status_change.' + authToken.apps[i]);
+      allowedEvents.push('instantmessage_read.' + authToken.apps[i]);
+      allowedEvents.push('campaign_hit.' + authToken.apps[i]);
+    }
+  };
 
+  return allowedEvents;
+}
+
+function checkAccess(authToken, requestedEvents) {
+  var allowedEvents = getAllowedEventsForToken(authToken);
 
   // Проверим что все события, на которые подписывается - разрешены
-  var isValid = true;
-  var i = 0, j = 0;
+  var isValid = true, i = 0;
 
   for (i = 0; i < requestedEvents.length; i++) {
     if (allowedEvents.indexOf(requestedEvents[i]) == -1) {
@@ -251,6 +293,7 @@ function listenerClient(req, res) {
         // Оставить как ждущего
         var timeout = setTimeout(function() {
           sendEventsToClient(res, []);
+          setOffline(u.query.auth_token);
 
           for (var i = 0; i < pending.length; i++) {
             if (pending[i].res == res) {
@@ -260,7 +303,20 @@ function listenerClient(req, res) {
           }
         }, LONG_POOL_TIMEOUT);
 
-        pending.push({req: req, res: res, timeout: timeout, requestedEvents: requestedEvents});
+        req.on('close', function() {
+          // Клиент закрыл соединение
+          setOffline(u.query.auth_token);
+
+          for (var i = 0; i < pending.length; i++) {
+            if (pending[i].res == res) {
+              pending.splice(i, 1);
+              break;
+            }
+          }
+        });
+
+        pending.push({req: req, res: res, timeout: timeout, requestedEvents: requestedEvents, authToken: u.query.auth_token});
+        setOnline(u.query.auth_token);
       }
     }
     else if (body.meta.status == 403 || !body.data.active) {
