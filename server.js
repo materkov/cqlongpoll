@@ -149,6 +149,8 @@ function setOffline(authToken) {
     var operations = [{op: 'update_or_create', key: '$online', value: false}];
     var params = {app: '$self_app', operations: JSON.stringify(operations)};
     request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
+
+    delete tokenOfflineTimeouts[authToken];
   }, AUTH_TOKEN_OFFLINE_TIMEOUT);
 }
 
