@@ -361,8 +361,8 @@ function listenerStat(req, res) {
         usersPending.push(uid);
     }
 
-    for (var i = 0; i < tokenOfflineTimeouts.length; i++) {
-      var uid = getUIDFromToken(tokenOfflineTimeouts[i]);
+    for (var key in tokenOfflineTimeouts) {
+      var uid = getUIDFromToken(key);
       if (uid)
         usersOfflineTimeout.push(uid);
     }
