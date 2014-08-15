@@ -5,8 +5,8 @@ var http = require('http'),
     config = require('./config.js');
 
 var LONG_POOL_TIMEOUT = 25 * 1000;  // 25 seconds
-var EVENTS_EXPIRE_TIME = 20 * 60 * 1000;  // 20 minutes
-var AUTH_TOKEN_CACHE_TIME = 20 * 60 * 1000;  // 20 minutes
+var EVENTS_EXPIRE_TIME = 10 * 60 * 1000;  // 10 minutes
+var AUTH_TOKEN_CACHE_TIME = 30 * 60 * 1000;  // 30 minutes
 var AUTH_TOKEN_OFFLINE_TIMEOUT = 10 * 1000;  // 10 seconds
 
 var events = [];
@@ -343,8 +343,37 @@ function listenerClient(req, res) {
 }
 
 function listenerStat(req, res) {
-  res.write('Pending: ' + pending.length + ', Events: ' + events.length);
-  res.end();
+  var regexp = /user\.(\d+)\./;
+  
+  function getUIDFromToken(authToken) {
+    var match = regexp.exec(authToken);
+    if (match)
+      return parseInt(match[1]);
+  }
+
+  var u = url.parse(req.url, true);
+  if (u.query && u.query.users) {
+    var usersPending = [], usersOfflineTimeout = [];
+
+    for (var i = 0; i < pending.length; i++) {
+      var uid = getUIDFromToken(pending[i].authToken);
+      if (uid)
+        usersPending.push(uid);
+    }
+
+    for (var i = 0; i < tokenOfflineTimeouts.length; i++) {
+      var uid = getUIDFromToken(tokenOfflineTimeouts[i]);
+      if (uid)
+        usersOfflineTimeout.push(uid);
+    }
+
+    res.write(JSON.stringify({'pending': usersPending, 'offlinetimeouts': usersOfflineTimeout}));
+    res.end();
+  }
+  else {
+    res.write('Pending: ' + pending.length + ', Events: ' + events.length);
+    res.end();
+  }
 }
 
 http.createServer(listenerClient).listen(config.PORT_USER);
