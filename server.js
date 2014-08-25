@@ -4,7 +4,7 @@ var http = require('http'),
     request = require('request'),
     config = require('./config.js');
 
-var LONG_POOL_TIMEOUT = 25 * 1000;  // 25 seconds
+var LONG_POLL_TIMEOUT = 25 * 1000;  // 25 seconds
 var EVENTS_EXPIRE_TIME = 10 * 60 * 1000;  // 10 minutes
 var AUTH_TOKEN_CACHE_TIME = 30 * 60 * 1000;  // 30 minutes
 var AUTH_TOKEN_OFFLINE_TIMEOUT = 10 * 1000;  // 10 seconds
@@ -126,6 +126,7 @@ function tokenOfflineTimeoutCancel(authToken) {
   return false;
 }
 
+// Вызывается когда новое соединение
 function setOnline(authToken) {
   if (authToken.indexOf('user') != 0) return;  // Нужно это только для user тукенов
 
@@ -140,17 +141,29 @@ function setOnline(authToken) {
   }
 }
 
+// Вызывается когда закрывается соединение
 function setOffline(authToken) {
   if (authToken.indexOf('user') != 0) return;  // Нужно это только для user тукенов
 
   tokenOfflineTimeoutCancel(authToken);
 
   tokenOfflineTimeouts[authToken] = setTimeout(function() {
+    delete tokenOfflineTimeouts[authToken];
+
+    // Если в pending еще есть юзер с таким id, то не надо ставить оффлайн
+    var foundInPending = false;
+    for (var i = 0; i < pending.length; i++) {
+      if (pending[i].authToken == authToken) {
+        foundInPending = true;
+        break;
+      }
+    }
+    
+    if (foundInPending) return;
+
     var operations = [{op: 'update_or_create', key: '$online', value: false}];
     var params = {app: '$self_app', operations: JSON.stringify(operations)};
     request.post(config.API_ENDPOINT + '/users/$self_user/setproperties?auth_token=' + authToken, {form: params});
-
-    delete tokenOfflineTimeouts[authToken];
   }, AUTH_TOKEN_OFFLINE_TIMEOUT);
 }
 
@@ -258,6 +271,13 @@ function checkAccess(authToken, requestedEvents) {
   return isValid;
 }
 
+function getUIDFromToken(authToken) {
+  var UID_REGEXP = /user\.(\d+)\./;
+  var match = UID_REGEXP.exec(authToken);
+  if (match)
+    return parseInt(match[1]);
+}
+
 function listenerClient(req, res) {
   var u = url.parse(req.url, true);
   if (!u.query || !u.query.events || !u.query.auth_token) {
@@ -300,6 +320,11 @@ function listenerClient(req, res) {
         sendEventsToClient(res, immediateReturn);
       }
       else {
+        // Выясним таймаут, если указано, что не ждать, то таймаут поставим ноль.
+        var neededTimeout = LONG_POLL_TIMEOUT;
+        if (u.query.no_wait)
+          neededTimeout = 0;
+
         // Оставить как ждущего
         var timeout = setTimeout(function() {
           sendEventsToClient(res, []);
@@ -311,7 +336,7 @@ function listenerClient(req, res) {
               break;
             }
           }
-        }, LONG_POOL_TIMEOUT);
+        }, neededTimeout);
 
         req.on('close', function() {
           // Клиент закрыл соединение
@@ -326,7 +351,13 @@ function listenerClient(req, res) {
           }
         });
 
-        pending.push({req: req, res: res, timeout: timeout, requestedEvents: requestedEvents, authToken: u.query.auth_token});
+        pending.push({
+          req: req, 
+          res: res, 
+          timeout: timeout, 
+          requestedEvents: requestedEvents, 
+          authToken: u.query.auth_token,
+          uid: getUIDFromToken(u.query.auth_token)});
         setOnline(u.query.auth_token);
       }
     }
@@ -343,14 +374,6 @@ function listenerClient(req, res) {
 }
 
 function listenerStat(req, res) {
-  var regexp = /user\.(\d+)\./;
-  
-  function getUIDFromToken(authToken) {
-    var match = regexp.exec(authToken);
-    if (match)
-      return parseInt(match[1]);
-  }
-
   var u = url.parse(req.url, true);
   if (u.query && u.query.users) {
     var usersPending = [], usersOfflineTimeout = [];
