@@ -105,9 +105,9 @@ function writeError(res, error) {
   
   if (error == 400)
     res.write('Bad Request');
-  else if (error = 403)
+  else if (error == 403)
     res.write('Access denied');
-  else if (error = 502)
+  else if (error == 502)
     res.write('Something wrong');
   
   res.end();
@@ -242,13 +242,21 @@ function getAllowedEventsForToken(authToken) {
     allowedEvents.push('user_status_change.' + authToken.app + '.' + authToken.user);
     allowedEvents.push('instantmessage_read.' + authToken.app + '.' + authToken.user);
     allowedEvents.push('campaign_hit.' + authToken.app + '.' + authToken.user);
+
+    allowedEvents.push('conversation.' + authToken.app + '.' + authToken.user);
+    allowedEvents.push('conversation_reply.' + authToken.app + '.' + authToken.user);
+    allowedEvents.push('conversation_read.' + authToken.app + '.' + authToken.user);
   }
   else if (authToken.type == 'panel') {
     for (var i = 0; i < authToken.apps.length; i++) {
-      allowedEvents.push('instantmessage.' + authToken.apps[i]);
-      allowedEvents.push('user_status_change.' + authToken.apps[i]);
-      allowedEvents.push('instantmessage_read.' + authToken.apps[i]);
-      allowedEvents.push('campaign_hit.' + authToken.apps[i]);
+      allowedEvents.push('instantmessage.' + authToken.apps[i] + '.');
+      allowedEvents.push('user_status_change.' + authToken.apps[i] + '.');
+      allowedEvents.push('instantmessage_read.' + authToken.apps[i] + '.');
+      allowedEvents.push('campaign_hit.' + authToken.apps[i] + '.');
+
+      allowedEvents.push('conversation.' + authToken.apps[i] + '.');
+      allowedEvents.push('conversation_reply.' + authToken.apps[i] + '.');
+      allowedEvents.push('conversation_read.' + authToken.apps[i] + '.');
     }
   };
 
@@ -361,13 +369,12 @@ function listenerClient(req, res) {
         setOnline(u.query.auth_token);
       }
     }
-    else if (body.meta.status == 403 || !body.data.active) {
+    else if (body.meta.status == 400 || (body.meta.status == 200 && !body.data.active)) {
       // Неверный или неактивный auth token
       writeError(res, 403);
     }
     else {
       // Something wrong
-      res.writeHead(502);
       writeError(res, 502);
     }
   });
