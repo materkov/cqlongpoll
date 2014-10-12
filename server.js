@@ -250,6 +250,7 @@ function getAllowedEventsForToken(authToken) {
       allowedEvents.push('conversation_read.' + authToken.apps[i] + '.');  // Delete this in future!
       allowedEvents.push('conversation_u2a_read.' + authToken.apps[i] + '.');
       allowedEvents.push('conversation_a2u_read.' + authToken.apps[i] + '.');
+      allowedEvents.push('user_status_change.' + authToken.apps[i] + '.');
     }
   };
 
