@@ -238,25 +238,18 @@ function getAllowedEventsForToken(authToken) {
   var allowedEvents = [];
 
   if (authToken.type == 'user') {
-    allowedEvents.push('instantmessage.' + authToken.app + '.' + authToken.user);
-    allowedEvents.push('user_status_change.' + authToken.app + '.' + authToken.user);
-    allowedEvents.push('instantmessage_read.' + authToken.app + '.' + authToken.user);
-    allowedEvents.push('campaign_hit.' + authToken.app + '.' + authToken.user);
-
     allowedEvents.push('conversation.' + authToken.app + '.' + authToken.user);
     allowedEvents.push('conversation_reply.' + authToken.app + '.' + authToken.user);
-    allowedEvents.push('conversation_read.' + authToken.app + '.' + authToken.user);
+    //allowedEvents.push('conversation_u2a_read.' + authToken.app + '.' + authToken.user);
+    //allowedEvents.push('conversation_read.' + authToken.app + '.' + authToken.user);
   }
   else if (authToken.type == 'panel') {
     for (var i = 0; i < authToken.apps.length; i++) {
-      allowedEvents.push('instantmessage.' + authToken.apps[i] + '.');
-      allowedEvents.push('user_status_change.' + authToken.apps[i] + '.');
-      allowedEvents.push('instantmessage_read.' + authToken.apps[i] + '.');
-      allowedEvents.push('campaign_hit.' + authToken.apps[i] + '.');
-
       allowedEvents.push('conversation.' + authToken.apps[i] + '.');
       allowedEvents.push('conversation_reply.' + authToken.apps[i] + '.');
-      allowedEvents.push('conversation_read.' + authToken.apps[i] + '.');
+      allowedEvents.push('conversation_read.' + authToken.apps[i] + '.');  // Delete this in future!
+      allowedEvents.push('conversation_u2a_read.' + authToken.apps[i] + '.');
+      allowedEvents.push('conversation_a2u_read.' + authToken.apps[i] + '.');
     }
   };
 
